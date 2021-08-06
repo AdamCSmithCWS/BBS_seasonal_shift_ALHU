@@ -17,7 +17,7 @@ st_dat = stratify(by = "bbs_cws")
 species = "Allen's Hummingbird"
 
 
-spsData = prepare_jags_data(st_dat,species_to_run = species,
+spsData = prepare_data(st_dat,species_to_run = species,
                             model = "gamye",
                             heavy_tailed = TRUE)
 
