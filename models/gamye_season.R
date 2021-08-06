@@ -1,0 +1,437 @@
+model
+
+{
+
+	#### counts and overdispersion effects  ###### Hierarchical GAM model with additional random year-effects
+
+	####  builds on the GAM model used in 2016 work
+
+	### not yet applied or tested
+
+
+
+
+
+	for( k in 1 : ncounts )
+
+	{
+
+		log(lambda[k]) <- obs[strat[k],obser[k]] + eta*firstyr[k] + strata[strat[k]] + yeareffect[strat[k],year[k]] + yy[strat[k],year[k]] + seasoneffect[decade[k],season[k]]  + noise[k]
+
+	 	#noise[k] ~ dnorm(0, taunoise)
+
+    noise[k] ~ dt(0, taunoise, nu) #alternative t-distributed noise = heavy-tailed overdispersion
+
+		count[k] ~ dpois(lambda[k])
+
+
+
+		#----------------------------------#
+
+		#fcount[k] ~ dpois(lambda[k])
+
+		#err[k] <- pow(count[k]-lambda[k],2)/lambda[k]
+
+		#ferr[k] <- pow(fcount[k]-lambda[k],2)/lambda[k]
+
+		#fzero[k] <- equals(fcount[k],0)
+
+		#loglik[k] <- logdensity.pois(count[k], lambda[k])
+
+		#----------------------------------#
+
+	}
+
+
+
+
+
+	### goodness of fit statistics
+
+
+
+	#maxf <- max(fcount[1:ncounts])
+
+	#meanf <- mean(fcount[1:ncounts])
+
+	#nfzero <- sum(fzero[1:ncounts])
+
+	#gof <- sum(err[1:ncounts])
+
+	#fgof <- sum(ferr[1:ncounts])
+
+	#diffgof <- gof-fgof
+
+	#posdiff <- step(diffgof)
+
+
+
+
+
+
+
+	### fixed effect priors
+
+
+
+	nu ~ dgamma(2, 0.1) #degrees of freedom (i.e., the heavy-tail component of the t-distribution), if nu is large (infinite) this is equivalent to the normal distribution noise
+
+  taunoise ~ dgamma(0.001,0.001)
+
+	sdnoise <- 1 / pow(taunoise, 0.5)
+
+	#taunoise <- 1/pow(sdnoise,2)#~ dgamma(0.001,0.001) # alternative priors
+
+	#sdnoise ~ dunif(0.00001,5)#<- 1 / pow(taunoise, 0.5)
+
+	#mulogtauobs ~ dnorm(0,2)#3.33) #informative prior that reduces the chance of very large values of sdobs
+
+	#mulogtauobs ~ dnorm(0.0,1.0E-6) #alternative less informative prior
+
+	#taulogtauobs ~ dgamma(2,0.2) #informative prior that reduces the chance of very large values of sdobs
+
+	mulogtauyy ~ dnorm(0.0,2)
+
+	taulogtauyy ~ dgamma(2,0.2)
+
+	#Tauy ~ dgamma(2,0.2)
+
+	eta ~ dnorm( 0.0,0.01)
+
+	#STRATA ~ dnorm( 0.0,0.01)
+
+
+
+	#taustrata ~ dgamma(0.001,0.0001) #<- 1/pow(sdbeta,2)#
+
+	#sdstrata <- 1/pow(taustrata,0.5)#~ dunif(0.001,10)
+
+
+
+  sdobs <- 1/pow(tauobs, 0.5)
+
+  tauobs ~ dgamma(0.001,0.0001)
+
+
+
+	#### stratum-level effects  ######
+
+	for( i in 1 : nstrata )
+
+	{
+
+		#### observer effects  ######
+
+
+
+		for( o in 1 : nobservers[i] )
+
+		{
+
+			#obs[i,o] ~ dnorm( 0.0,tauobs[i])
+
+			obs[i,o] ~ dnorm(0.0, tauobs)
+
+		}
+
+		#log(tauobs[i]) <- logtauobs[i]
+
+		#logtauobs[i] ~ dnorm(mulogtauobs,taulogtauobs)
+
+		#sdobs[i] <- 1 / pow(tauobs, 0.5)
+
+		#### end observer effects  ######
+
+
+
+
+
+		### stratum-level priors
+
+
+
+		#strata.p[i] ~ dnorm(0,taustrata)
+
+		strata[i] ~ dnorm(0,0.1) #<- STRATA + strata.p[i]
+
+		expstrata[i] <- exp(strata[i])
+
+		overdisp[i] <- 1 + 1/(expstrata[i]*taunoise)
+
+	}# end s strata loop and stratum-level effects
+
+
+
+
+
+
+
+
+
+	###########COMPUTING GAMs for yeareffects##############
+
+	# Following Crainiceanu, C. M., Ruppert, D. & Wand, M. P. (2005). Bayesian Analysis for Penalized Spline Regression Using WinBUGS. Journal of Statistical Softare, 14 (14), 1-24.
+
+	# X.basis is data computed in R
+
+
+
+	tauX~dgamma(1.0E-2,1.0E-4) #alternate prior, original from Cainiceanu et al. second gamma parameter == 0.0001 << (abs(mean(B.X[]))^2)/2, mean(B.X[]) ~ 0.2
+
+	#tauX <- 1/pow(sdX,2) # prior on precision of gam hyperparameters
+
+	sdX <- 1/(pow(tauX,0.5)) # ~ dunif(0,5)
+
+	taubeta ~ dgamma(2,0.2) # prior on precision of gam coefficients(
+
+	sdbeta <- 1/(pow(taubeta,0.5))
+
+
+
+	for(k in 1:nknots)
+
+	{
+
+		# Computation of GAM components
+
+		B.X[k] ~ dnorm(0,tauX)
+
+
+
+		for(i in 1:nstrata)
+
+		{
+
+			beta.X.p[i,k] ~ dnorm(0,taubeta) #alternative non-centered parameterization
+
+      beta.X[i,k] <- B.X[k]+beta.X.p[i,k]
+
+      #beta.X[i,k] ~ dnorm(B.X[k],taubeta) T(-10,10) #avoiding log density calculation errors
+
+
+
+
+
+			for ( t in ymin : ymax )
+
+			{
+
+				X.part[i,k,t] <- beta.X[i,k]*(X.basis[t,k])
+
+			}#t
+
+		}#i
+
+	}#k
+
+
+
+		for(i in 1:nstrata)
+
+		{
+
+		for (t in ymin : ymax )
+
+	{
+
+			yeareffect[i,t] <- sum(X.part[i,1:nknots,t])
+
+		}#t
+
+	}#i
+
+
+
+
+
+	#-------------------------------------------------#
+
+
+
+
+
+	#### additional random year effects  ######
+
+#	for( t in ymin : ymax )
+
+#		{
+
+#		Muyy[t] ~ dnorm(0,Tauy) #range wide mean year-effect alternative parameterization
+
+#		}
+
+		for( i in 1 : nstrata )
+
+    {
+
+	for( t in ymin : ymax )
+
+		{
+
+#			yy.p[i,t] ~ dnorm(0,tauyy[i])
+
+#     yy[i,t] <- Muyy[t] + yy.p[i,t]
+
+			yy[i,t] ~ dnorm(0,tauyy[i])
+
+		}
+
+		log(tauyy[i]) <- logtauyy[i]
+
+			logtauyy[i] ~ dnorm(mulogtauyy,taulogtauyy)
+
+		sdyy[i] <- 1/pow(tauyy[i],0.5)
+
+
+
+	}
+
+
+	
+	######################################################
+	
+	############ added Seasonal GAM by decade ############
+
+	tau_B_season~dgamma(1.0E-2,1.0E-4) #alternate prior, original from Cainiceanu et al. second gamma parameter == 0.0001 << (abs(mean(B.X[]))^2)/2, mean(B.X[]) ~ 0.2
+	
+	#tauX <- 1/pow(sdX,2) # prior on precision of gam hyperparameters
+	
+	sd_B_season <- 1/(pow(tau_B_season,0.5)) # ~ dunif(0,5)
+	
+	taubeta_season ~ dgamma(2,0.2) # prior on precision of gam coefficients(
+	
+	sdbeta_season <- 1/(pow(taubeta_season,0.5))
+	
+	
+##### seasonal GAM by decade
+	for(k in 1:nknots_season)
+	  {
+	    
+	    # Computation of GAM components
+	    
+	    B_season[k] ~ dnorm(0,tau_B_season)
+	    
+	    
+	  # beta_season_p[1,k] ~ dnorm(0,taubeta_season) #
+	  # 
+	  # beta_season[1,k] <- B_season[k]+beta_season_p[1,k]
+	  
+	  #beta_season_p[1,k] ~ dnorm(0,taubeta_season) #
+	  
+	  beta_season[1,k] <- B_season[k]#+beta_season_p[1,k]
+	  
+	    
+	    for(i in 2:ndecades)
+	      
+	    {
+	      
+	      beta_season[i,k] ~ dnorm(beta_season[i-1,k],taubeta_season) #
+	      #beta_season_p[i,k] ~ dnorm(beta_season_p[i-1,k],taubeta_season) #
+	      
+	      #beta_season[i,k] <- B_season[k]+beta_season_p[i,k]
+	      
+	      
+	    }
+	  
+	      for(i in 1:ndecades)
+	        
+	      { 
+	     
+	      for ( t in 1 : nseason )
+	        
+	      {
+	        
+	        season_part[i,k,t] <- beta_season[i,k]*(season_basis[t,k])
+	        
+	      }#t
+	      
+	    }#i
+	    
+	  }#k
+	  
+	  for(i in 1:ndecades)
+	    
+	  {
+	    
+	    for (t in 1 : nseason )
+	      
+	    {
+	      
+	      seasoneffect[i,t] <- sum(season_part[i,1:nknots_season,t])
+	      
+	    }#t
+	    
+	  }#i
+	  
+	
+	############ END Seasonal GAM by decade ############
+	
+	######################################################
+	
+
+
+	#### summary statistics  ######
+
+## rescaling factor for t-distribution noise, from Link and Sauer, unpublished
+
+adj <- (1.422*pow(nu,0.906))/(1+(1.422*pow(nu,0.906)))
+
+sdnoise.adj <- sdnoise/adj
+
+sdn_ret <- 0.5*pow(sdnoise.adj,2)
+
+sdobs_ret <- 0.5*pow(sdobs,2)
+
+
+
+
+
+	for( i in 1 : nstrata )
+
+	{
+
+		for( t in ymin : ymax )
+
+		{
+
+			for(o in 1 : nobservers[i])
+
+			{
+
+				no[i,t,o] <- exp(strata[i]+yeareffect[i,t] + yy[i,t] + obs[i,o] + sdn_ret)
+
+				no3[i,t,o] <- exp(strata[i]+yeareffect[i,t] + obs[i,o] + sdn_ret)
+
+			}
+
+
+
+			mn[i,t] <- mean(no[i,t,(1 : nobservers[i])])
+
+			mn3[i,t] <- mean(no3[i,t,(1 : nobservers[i])])
+
+			n[i,t] <- nonzeroweight[i]*(mn[i,t])
+
+			n3[i,t] <- nonzeroweight[i]*(mn3[i,t])
+
+
+
+			n2[i,t] <- nonzeroweight[i]*exp(strata[i]+yeareffect[i,t] + yy[i,t] + sdn_ret + sdobs_ret) #n2 is an alternative way of calculating n
+
+			n4[i,t] <- nonzeroweight[i]*exp(strata[i]+yeareffect[i,t] + sdn_ret + sdobs_ret) #n4 is an alternative way of calculating n3
+
+
+
+		}
+
+	}
+
+
+
+
+
+	#-------------------------------------------------#
+
+}
+
+
